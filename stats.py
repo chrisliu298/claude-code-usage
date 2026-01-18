@@ -5,7 +5,7 @@
 # ///
 """Claude Code usage statistics."""
 
-import json, subprocess, sys
+import json, re, shutil, subprocess, sys
 from datetime import datetime
 from pathlib import Path
 import httpx
@@ -31,7 +31,6 @@ def freset(s):
         return f"{d}d {h}h" if d else f"{h}h {m}m" if h else f"{m}m"
     except: return "?"
 def fdur(ms): h, m = divmod(ms // 60000, 60); return f"{h}h {m}m" if h else f"{m}m"
-def sec(t): print(f"\n  {col(t, 'bold')}\n  {col('─' * 50, 'dim')}")
 def pkey(m):
     m = m.lower()
     for k in ["opus-4-5", "opus-4", "sonnet-4-5", "sonnet-4", "haiku-4-5", "haiku-3-5"]:
@@ -42,6 +41,20 @@ def cost(u, pk):
     p = PRICE[pk]
     return (u.get("inputTokens", 0) * p[0] + u.get("outputTokens", 0) * p[1] +
             u.get("cacheReadInputTokens", 0) * p[2] + u.get("cacheCreationInputTokens", 0) * p[3]) / 1e6
+
+ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
+def get_width(): return shutil.get_terminal_size((80, 24)).columns
+def visible_len(s): return len(ANSI_RE.sub('', s))
+def pad_line(s, width): return s + " " * (width - visible_len(s))
+def merge_columns(left, right, gap=3, sep="│"):
+    """Merge two sections side-by-side with a separator."""
+    lw = max((visible_len(l) for l in left), default=0)
+    merged = []
+    for i in range(max(len(left), len(right))):
+        l = left[i] if i < len(left) else ""
+        r = right[i] if i < len(right) else ""
+        merged.append(pad_line(l, lw) + " " * gap + col(sep, "dim") + " " + r)
+    return merged
 
 def creds():
     if sys.platform != "darwin": return None
@@ -54,115 +67,221 @@ def creds():
         return json.loads(r.stdout.strip()).get("claudeAiOauth") if r.returncode == 0 else None
     except: return None
 
-def main():
-    if not STATS.exists(): print(col("✗ No local stats found", "magenta")); return 1
-    st, cr, da = json.loads(STATS.read_text()), creds(), []
-    da = st.get("dailyActivity", [])
-
-    # Header
+def build_header(st, cr, width):
+    """Build header box that spans full terminal width."""
     tier = ""
     if cr:
         t = cr.get("rateLimitTier", "")
         tier = "Max 5x" if "max_5x" in t else "Max 20x" if "max_20x" in t else "Pro" if "pro" in t.lower() else ""
     sub = " • ".join(filter(None, [tier, f"Since {fdate(st.get('firstSessionDate', ''))}" if st.get("firstSessionDate") else ""]))
-    print(f"{col('╭' + '─' * 50 + '╮', 'dim')}\n{col('│', 'dim')}  {col('CLAUDE CODE USAGE', 'bold', 'cyan')}{' ' * 31}{col('│', 'dim')}")
-    if sub: print(f"{col('│', 'dim')}  {col(sub, 'dim')}{' ' * (48 - len(sub))}{col('│', 'dim')}")
-    print(f"{col('╰' + '─' * 50 + '╯', 'dim')}")
+    inner = width - 4  # Account for borders and padding
+    lines = [col('╭' + '─' * (width - 2) + '╮', 'dim')]
+    title = col('CLAUDE CODE USAGE', 'bold', 'cyan')
+    title_len = 17  # "CLAUDE CODE USAGE"
+    lines.append(f"{col('│', 'dim')}  {title}{' ' * (inner - title_len)}{col('│', 'dim')}")
+    if sub:
+        lines.append(f"{col('│', 'dim')}  {col(sub, 'dim')}{' ' * (inner - len(sub))}{col('│', 'dim')}")
+    lines.append(col('╰' + '─' * (width - 2) + '╯', 'dim'))
+    return lines
 
-    # Quick stats
+def build_quick_stats(st, da):
+    """Build quick stats line."""
     tools = sum(d.get("toolCallCount", 0) for d in da)
-    print(f"\n  {col(f'{st.get('totalSessions', 0):,}', 'bold')} sessions  {col('│', 'dim')}  "
-          f"{col(f'{st.get('totalMessages', 0):,}', 'bold')} messages  {col('│', 'dim')}  "
-          f"{col(f'{tools:,}', 'bold')} tools  {col('│', 'dim')}  {col(len(da), 'bold')} days")
+    return [f"  {col(f'{st.get('totalSessions', 0):,}', 'bold')} sessions  {col('│', 'dim')}  "
+            f"{col(f'{st.get('totalMessages', 0):,}', 'bold')} messages  {col('│', 'dim')}  "
+            f"{col(f'{tools:,}', 'bold')} tools  {col('│', 'dim')}  {col(len(da), 'bold')} days"]
 
-    # Usage limits
-    if cr:
-        try:
-            data = httpx.get("https://api.anthropic.com/api/oauth/usage", headers={"Authorization": f"Bearer {cr['accessToken']}", "anthropic-beta": "oauth-2025-04-20"}, timeout=30).json()
-            print()
-            for nm, ky in [("5-Hour", "five_hour"), ("7-Day", "seven_day")]:
-                if (d := data.get(ky)) and (u := d.get("utilization")) is not None:
-                    f = int(25 * u / 100); bc = "green" if u < 50 else "yellow" if u < 80 else "magenta"
-                    print(f"  {col(f'{nm:<8}', 'bold')}{col('━' * f, bc)}{col('━' * (25 - f), 'dim')} {u:>3.0f}%  {col('resets', 'dim')} {col(freset(d.get('resets_at', '')), 'cyan')}")
-        except: pass
+def build_usage_limits(cr):
+    """Build usage limits section."""
+    lines = []
+    if not cr: return lines
+    try:
+        data = httpx.get("https://api.anthropic.com/api/oauth/usage", headers={"Authorization": f"Bearer {cr['accessToken']}", "anthropic-beta": "oauth-2025-04-20"}, timeout=30).json()
+        for nm, ky in [("5-Hour", "five_hour"), ("7-Day", "seven_day")]:
+            if (d := data.get(ky)) and (u := d.get("utilization")) is not None:
+                f = int(25 * u / 100); bc = "green" if u < 50 else "yellow" if u < 80 else "magenta"
+                lines.append(f"  {col(f'{nm:<8}', 'bold')}{col('━' * f, bc)}{col('━' * (25 - f), 'dim')} {u:>3.0f}%  {col('resets', 'dim')} {col(freset(d.get('resets_at', '')), 'cyan')}")
+    except: pass
+    return lines
 
-    # Model breakdown + cost
+def build_model_breakdown(mu, tot_out):
+    """Build model breakdown section, returns (lines, totals_dict, cost_breakdown_dict)."""
+    lines = [col("Model Breakdown", "bold"), col("─" * 45, "dim")]
+    ct = {"in": 0, "out": 0, "cr": 0, "cw": 0, "cost": 0}
+    cb = {"in": 0, "out": 0, "cr": 0, "cw": 0}
+    for m, u in sorted(mu.items(), key=lambda x: x[1].get("outputTokens", 0), reverse=True):
+        out, pct = u.get("outputTokens", 0), u.get("outputTokens", 0) / tot_out * 100
+        pts = m.split("-"); nm = f"{pts[1]}-{pts[2]}" if len(pts) >= 3 else m[:10]
+        pk, c = pkey(m), cost(u, pkey(m))
+        ct["in"] += u.get("inputTokens", 0); ct["out"] += out
+        ct["cr"] += u.get("cacheReadInputTokens", 0); ct["cw"] += u.get("cacheCreationInputTokens", 0); ct["cost"] += c
+        if pk and pk in PRICE:
+            p = PRICE[pk]
+            cb["in"] += u.get("inputTokens", 0) * p[0] / 1e6; cb["out"] += out * p[1] / 1e6
+            cb["cr"] += u.get("cacheReadInputTokens", 0) * p[2] / 1e6; cb["cw"] += u.get("cacheCreationInputTokens", 0) * p[3] / 1e6
+        f = int(20 * pct / 100)
+        lines.append(f"{col(f'{nm:<10}', 'cyan')}{col('█' * f + '░' * (20 - f), 'blue')} {pct:>3.0f}%  {col(f'${c:>6.0f}', 'green')}")
+    return lines, ct, cb
+
+def build_cost_breakdown(ct, cb):
+    """Build estimated cost section."""
+    lines = [col("Estimated Cost", "bold"), col("─" * 42, "dim")]
+    rows = [("Input", ct["in"], cb["in"]), ("Output", ct["out"], cb["out"]), ("Cache Read", ct["cr"], cb["cr"]), ("Cache Write", ct["cw"], cb["cw"])]
+    mx = max(r[2] for r in rows) or 1
+    for lb, tk, cs in rows:
+        bl = int(cs / mx * 16)
+        lines.append(f"{lb:<12} {tok(tk):>6}  {col('█' * bl + '░' * (16 - bl), 'blue')}  {col(f'${cs:>6.2f}', 'green')}")
+    lines.append(col("─" * 42, "dim"))
+    lines.append(f"{col('Total', 'bold'):<12} {'':>6}  {'':16}  {col(f'${ct['cost']:>6.2f}', 'bold', 'green')}")
+    return lines
+
+def build_last7days(da):
+    """Build last 7 days activity section."""
+    last7 = da[-7:]
+    if not last7: return []
+    lines = [col("Last 7 Days", "bold"), col("─" * 45, "dim")]
+    lines.append(f"{'':6}  {'':12} {'msgs':>5}  {'tools':>5}  {'sess':>4}")
+    mx = max(d.get("messageCount", 0) for d in last7) or 1
+    for d in last7:
+        ms, tl, ss = d.get("messageCount", 0), d.get("toolCallCount", 0), d.get("sessionCount", 0)
+        bars = '▇' * (int(ms / mx * 12) if mx else 0)
+        lines.append(f"{col(fdate(d['date']), 'cyan')}  {col(f'{bars:<12}', 'blue')} {ms:>5}  {tl:>5}  {ss:>4}")
+    return lines
+
+def build_daily_tokens(st):
+    """Build daily output tokens section."""
+    td = st.get("dailyModelTokens", [])[-7:]
+    if not td: return []
+    lines = [col("Daily Output Tokens", "bold"), col("─" * 36, "dim")]
+    tots = [(d["date"], sum(d.get("tokensByModel", {}).values())) for d in td]
+    mx = max(t[1] for t in tots) or 1
+    for dt, tk in tots:
+        bars = '▇' * int(tk / mx * 20)
+        lines.append(f"{col(fdate(dt), 'cyan')}  {col(f'{bars:<20}', 'green')} {tok(tk):>6}")
+    return lines
+
+def build_peak_hours(hc):
+    """Build peak hours heatmap section."""
+    if not hc: return []
+    lines = [col("Peak Hours", "bold"), col("─" * 45, "dim")]
+    ch, cn = "░▁▂▃▄▅▆▇█", [hc.get(str(h), 0) for h in range(24)]
+    mx = max(cn) or 1
+    # First row: hours 0-11
+    lines.append(col(''.join(f'{h:>3}' for h in range(12)), 'dim'))
+    lines.append(''.join(col(f'{ch[min(int(cn[h]/mx*8), 8)]:>3}', 'blue') for h in range(12)))
+    # Second row: hours 12-23
+    lines.append(col(''.join(f'{h:>3}' for h in range(12, 24)), 'dim'))
+    lines.append(''.join(col(f'{ch[min(int(cn[h]/mx*8), 8)]:>3}', 'blue') for h in range(12, 24)))
+    return lines
+
+def build_records(st, tools):
+    """Build records section."""
+    lines = [col("Records", "bold"), col("─" * 42, "dim")]
+    if ls := st.get("longestSession"):
+        lines.append(f"{'Longest Session':<18}{col(fdur(ls.get('duration', 0)), 'bold', 'green')}  •  {ls.get('messageCount', 0)} msgs")
+    if st.get("totalSessions"):
+        lines.append(f"{'Avg Msgs/Sess':<18}{col(st['totalMessages'] // st['totalSessions'], 'bold', 'green')}")
+    lines.append(f"{'Total Tool Calls':<18}{col(f'{tools:,}', 'bold', 'green')}")
+    return lines
+
+def build_projects(width):
+    """Build projects section."""
+    if not PROJECTS.exists(): return []
+    pj = json.loads(PROJECTS.read_text()).get("projects", {})
+    sp = sorted([(p, d) for p, d in pj.items() if d.get("lastCost", 0) > 0], key=lambda x: x[1]["lastCost"], reverse=True)[:10]
+    if not sp: return []
+    line_width = max(50, width - 4)
+    path_max = 38 if width < 100 else 45
+    lines = [col("Projects (Last Session)", "bold"), col("─" * line_width, "dim")]
+    tot = 0
+    for pt, d in sp:
+        c = d["lastCost"]; tot += c
+        sh = pt.replace(str(Path.home()), "~"); sh = "..." + sh[-(path_max-3):] if len(sh) > path_max else sh
+        la, lr = d.get("lastLinesAdded", 0), d.get("lastLinesRemoved", 0)
+        ti, to = tok(d.get('lastTotalInputTokens', 0)), tok(d.get('lastTotalOutputTokens', 0))
+        tks = f"{ti:>5} in, {to:>5} out"
+        # Fixed-width columns: lines (21 chars visible), duration (9 chars)
+        if la or lr:
+            ln = f"  {col(f'+{la:>5}', 'green')} {col(f'-{lr:>5}', 'red')} lines"
+        else:
+            ln = " " * 21  # Reserve space for lines column
+        dr = f"  {fdur(d['lastDuration']):>7}" if d.get("lastDuration") else " " * 9
+        lines.append(f"{col(f'${c:>6.2f}', 'green', 'bold')}  {col(f'{sh:<{path_max}}', 'cyan')}  {col(tks, 'dim')}{ln}{dr}")
+    lines.append(col("─" * line_width, "dim"))
+    lines.append(f"{col(f'${tot:>6.2f}', 'green', 'bold')}  {col('Total', 'bold')}")
+    return lines
+
+def main():
+    if not STATS.exists(): print(col("✗ No local stats found", "magenta")); return 1
+    st, cr = json.loads(STATS.read_text()), creds()
+    da = st.get("dailyActivity", [])
     mu = st.get("modelUsage", {})
     tot_out = sum(u.get("outputTokens", 0) for u in mu.values())
-    if tot_out:
-        sec("Model Breakdown")
-        ct = {"in": 0, "out": 0, "cr": 0, "cw": 0, "cost": 0}
-        cb = {"in": 0, "out": 0, "cr": 0, "cw": 0}
-        for m, u in sorted(mu.items(), key=lambda x: x[1].get("outputTokens", 0), reverse=True):
-            out, pct = u.get("outputTokens", 0), u.get("outputTokens", 0) / tot_out * 100
-            pts = m.split("-"); nm = f"{pts[1]}-{pts[2]}" if len(pts) >= 3 else m[:10]
-            pk, c = pkey(m), cost(u, pkey(m))
-            ct["in"] += u.get("inputTokens", 0); ct["out"] += out
-            ct["cr"] += u.get("cacheReadInputTokens", 0); ct["cw"] += u.get("cacheCreationInputTokens", 0); ct["cost"] += c
-            if pk and pk in PRICE:
-                p = PRICE[pk]
-                cb["in"] += u.get("inputTokens", 0) * p[0] / 1e6; cb["out"] += out * p[1] / 1e6
-                cb["cr"] += u.get("cacheReadInputTokens", 0) * p[2] / 1e6; cb["cw"] += u.get("cacheCreationInputTokens", 0) * p[3] / 1e6
-            f = int(20 * pct / 100)
-            print(f"  {col(f'{nm:<10}', 'cyan')}{col('█' * f + '░' * (20 - f), 'blue')} {pct:>3.0f}%  {tok(out):>5} out  {col(f'${c:>7.2f}', 'green')}")
-
-        # Cost breakdown
-        sec("Estimated Cost (Claude Code only)")
-        rows = [("Input", ct["in"], cb["in"]), ("Output", ct["out"], cb["out"]), ("Cache Read", ct["cr"], cb["cr"]), ("Cache Write", ct["cw"], cb["cw"])]
-        mx = max(r[2] for r in rows) or 1
-        print(f"  {'Type':<14} {'Tokens':>10}  {'':18}  {'Cost':>8}")
-        print(f"  {col('─' * 54, 'dim')}")
-        for lb, tk, cs in rows:
-            bl = int(cs / mx * 18); print(f"  {lb:<14} {tok(tk):>10}  {col('█' * bl + '░' * (18 - bl), 'blue')}  {col(f'${cs:>7.2f}', 'green')}")
-        print(f"  {col('─' * 54, 'dim')}\n  {col('Total', 'bold'):<14} {' ':>10}  {' ':18}  {col(f'${ct['cost']:>7.2f}', 'bold', 'green')}")
-
-    # Daily activity
-    last7 = da[-7:]
-    if last7:
-        print(f"\n  {col('Last 7 Days', 'bold')}\n  {col('─' * 50, 'dim')}\n  {'':6}  {'':12} {'msgs':>5}  {'tools':>5}  {'sess':>4}")
-        mx = max(d.get("messageCount", 0) for d in last7)
-        for d in last7:
-            ms, tl, ss = d.get("messageCount", 0), d.get("toolCallCount", 0), d.get("sessionCount", 0)
-            print(f"  {col(fdate(d['date']), 'cyan')}  {col(f'{'▇' * (int(ms / mx * 12) if mx else 0):<12}', 'blue')} {ms:>5}  {tl:>5}  {ss:>4}")
-
-    # Hour heatmap
+    tools = sum(d.get("toolCallCount", 0) for d in da)
     hc = st.get("hourCounts", {})
-    if hc:
-        sec("Peak Hours (sessions started)")
-        print(f"  {col(''.join(f'{h:>3}' for h in range(24)), 'dim')}")
-        ch, cn = "░▁▂▃▄▅▆▇█", [hc.get(str(h), 0) for h in range(24)]; mx = max(cn) or 1
-        print(f"  {''.join(col(f'{ch[min(int(c/mx*8), 8)]:>3}', 'blue') for c in cn)}")
 
-    # Records
-    sec("Records")
-    if ls := st.get("longestSession"):
-        print(f"  {'Longest Session':<20}{col(fdur(ls.get('duration', 0)), 'bold', 'green')}  •  {ls.get('messageCount', 0)} msgs  •  {fdate(ls.get('timestamp', ''))}")
-    if st.get("totalSessions"): print(f"  {'Avg Messages/Sess':<20}{col(st['totalMessages'] // st['totalSessions'], 'bold', 'green')}")
-    print(f"  {'Total Tool Calls':<20}{col(f'{tools:,}', 'bold', 'green')}")
+    width = get_width()
+    wide = width >= 100  # Use side-by-side layout if terminal is wide enough
 
-    # Token trends
-    td = st.get("dailyModelTokens", [])[-7:]
-    if td:
-        sec("Daily Output Tokens (last 7 days)")
-        tots = [(d["date"], sum(d.get("tokensByModel", {}).values())) for d in td]; mx = max(t[1] for t in tots) or 1
-        for dt, tk in tots: print(f"  {col(fdate(dt), 'cyan')}  {col(f'{'▇' * int(tk / mx * 20):<20}', 'green')} {tok(tk):>6}")
+    # Header (full width)
+    for line in build_header(st, cr, width): print(line)
 
-    # Projects
-    if PROJECTS.exists():
-        pj = json.loads(PROJECTS.read_text()).get("projects", {})
-        sp = sorted([(p, d) for p, d in pj.items() if d.get("lastCost", 0) > 0], key=lambda x: x[1]["lastCost"], reverse=True)[:10]
-        if sp:
-            sec("Projects (Last Session)")
-            tot = 0
-            for pt, d in sp:
-                c = d["lastCost"]; tot += c
-                sh = pt.replace(str(Path.home()), "~"); sh = "..." + sh[-39:] if len(sh) > 42 else sh
-                la, lr = d.get("lastLinesAdded", 0), d.get("lastLinesRemoved", 0)
-                ln = f"  •  {col(f'+{la}', 'green')} {col(f'-{lr}', 'red')} lines" if la or lr else ""
-                dr = f"  •  {fdur(d['lastDuration'])}" if d.get("lastDuration") else ""
-                cs = f"${c:.2f}"; tks = f"{tok(d.get('lastTotalInputTokens', 0))} in, {tok(d.get('lastTotalOutputTokens', 0))} out"
-                print(f"  {col(f'{cs:>7}', 'green', 'bold')}  {col(sh, 'cyan')}\n  {'':7}  {col(tks, 'dim')}{ln}{dr}")
-            ts = f"${tot:.2f}"; print(f"  {col('─' * 50, 'dim')}\n  {col(f'{ts:>7}', 'green', 'bold')}  {col('Total', 'bold')}")
-    print(); return 0
+    # Quick stats
+    for line in build_quick_stats(st, da): print(line)
+
+    # Usage limits
+    limits = build_usage_limits(cr)
+    if limits:
+        print()
+        for line in limits: print(line)
+
+    # Model breakdown + Estimated cost
+    if tot_out:
+        mb_lines, ct, cb = build_model_breakdown(mu, tot_out)
+        cost_lines = build_cost_breakdown(ct, cb)
+        print()
+        if wide:
+            for line in merge_columns(mb_lines, cost_lines): print("  " + line)
+        else:
+            for line in mb_lines: print("  " + line)
+            print()
+            for line in cost_lines: print("  " + line)
+
+    # Last 7 days + Daily output tokens
+    last7_lines = build_last7days(da)
+    daily_tokens_lines = build_daily_tokens(st)
+    if last7_lines or daily_tokens_lines:
+        print()
+        if wide and last7_lines and daily_tokens_lines:
+            for line in merge_columns(last7_lines, daily_tokens_lines): print("  " + line)
+        else:
+            if last7_lines:
+                for line in last7_lines: print("  " + line)
+            if daily_tokens_lines:
+                print()
+                for line in daily_tokens_lines: print("  " + line)
+
+    # Peak hours + Records
+    peak_lines = build_peak_hours(hc)
+    records_lines = build_records(st, tools)
+    if peak_lines or records_lines:
+        print()
+        if wide and peak_lines and records_lines:
+            for line in merge_columns(peak_lines, records_lines): print("  " + line)
+        else:
+            if peak_lines:
+                for line in peak_lines: print("  " + line)
+            if records_lines:
+                print()
+                for line in records_lines: print("  " + line)
+
+    # Projects (full width)
+    proj_lines = build_projects(width)
+    if proj_lines:
+        print()
+        for line in proj_lines: print("  " + line)
+
+    print()
+    return 0
 
 if __name__ == "__main__": exit(main())

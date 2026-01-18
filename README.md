@@ -1,14 +1,19 @@
 # Claude Code Usage
 
-A CLI tool to display beautiful Claude Code usage statistics.
+A CLI tool to display Claude Code usage statistics.
+
+<p align="center">
+  <img src="screenshot.png" alt="Claude Code Usage Statistics" width="800">
+</p>
 
 ## Features
 
-- Usage limits with reset timers
-- Model breakdown with cost estimates
-- Daily activity and peak hours heatmap
-- Session records and token trends
-- Project-level cost tracking
+- **Usage limits** - 5-hour and 7-day utilization with reset timers
+- **Model breakdown** - Token usage and cost estimates by model
+- **Activity tracking** - Daily messages, tool calls, and sessions
+- **Peak hours** - Heatmap showing when you're most active
+- **Token trends** - Daily output token usage over time
+- **Project costs** - Per-project cost tracking with lines changed
 
 ## Usage
 
@@ -16,7 +21,7 @@ A CLI tool to display beautiful Claude Code usage statistics.
 uv run stats.py
 ```
 
-Or add an alias:
+Or add an alias to your shell config:
 
 ```bash
 alias cstats="/path/to/stats.py"
