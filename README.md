@@ -19,6 +19,8 @@ A CLI tool to display Claude Code usage statistics.
 
 ```bash
 uv run stats.py
+# or (the script uses a `uv run` shebang)
+./stats.py
 ```
 
 Or add an alias to your shell config:

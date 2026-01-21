@@ -71,7 +71,7 @@ def build_header(st, cr, width):
     """Build header box that spans full terminal width."""
     tier = ""
     if cr:
-        t = cr.get("rateLimitTier", "")
+        t = str(cr.get("rateLimitTier", "") or "")
         tier = "Max 5x" if "max_5x" in t else "Max 20x" if "max_20x" in t else "Pro" if "pro" in t.lower() else ""
     sub = " • ".join(filter(None, [tier, f"Since {fdate(st.get('firstSessionDate', ''))}" if st.get("firstSessionDate") else ""]))
     inner = width - 4  # Account for borders and padding
@@ -86,10 +86,13 @@ def build_header(st, cr, width):
 
 def build_quick_stats(st, da):
     """Build quick stats line."""
-    tools = sum(d.get("toolCallCount", 0) for d in da)
-    return [f"  {col(f'{st.get('totalSessions', 0):,}', 'bold')} sessions  {col('│', 'dim')}  "
-            f"{col(f'{st.get('totalMessages', 0):,}', 'bold')} messages  {col('│', 'dim')}  "
-            f"{col(f'{tools:,}', 'bold')} tools  {col('│', 'dim')}  {col(len(da), 'bold')} days"]
+    tool_calls = sum(d.get("toolCallCount", 0) for d in da)
+    sessions = f"{st.get('totalSessions', 0):,}"
+    messages = f"{st.get('totalMessages', 0):,}"
+    tool_calls_s = f"{tool_calls:,}"
+    return [f"  {col(sessions, 'bold')} sessions  {col('│', 'dim')}  "
+            f"{col(messages, 'bold')} messages  {col('│', 'dim')}  "
+            f"{col(tool_calls_s, 'bold')} tools  {col('│', 'dim')}  {col(len(da), 'bold')} days"]
 
 def build_usage_limits(cr):
     """Build usage limits section."""
@@ -132,7 +135,8 @@ def build_cost_breakdown(ct, cb):
         bl = int(cs / mx * 16)
         lines.append(f"{lb:<12} {tok(tk):>6}  {col('█' * bl + '░' * (16 - bl), 'blue')}  {col(f'${cs:>6.2f}', 'green')}")
     lines.append(col("─" * 42, "dim"))
-    lines.append(f"{col('Total', 'bold'):<12} {'':>6}  {'':16}  {col(f'${ct['cost']:>6.2f}', 'bold', 'green')}")
+    total_cost = f"${ct['cost']:>6.2f}"
+    lines.append(f"{col('Total', 'bold'):<12} {'':>6}  {'':16}  {col(total_cost, 'bold', 'green')}")
     return lines
 
 def build_last7days(da):
@@ -187,7 +191,10 @@ def build_records(st, tools):
 def build_projects(width):
     """Build projects section."""
     if not PROJECTS.exists(): return []
-    pj = json.loads(PROJECTS.read_text()).get("projects", {})
+    try:
+        pj = json.loads(PROJECTS.read_text()).get("projects", {})
+    except (json.JSONDecodeError, OSError):
+        return []
     sp = sorted([(p, d) for p, d in pj.items() if d.get("lastCost", 0) > 0], key=lambda x: x[1]["lastCost"], reverse=True)[:10]
     if not sp: return []
     line_width = max(50, width - 4)
@@ -213,7 +220,12 @@ def build_projects(width):
 
 def main():
     if not STATS.exists(): print(col("✗ No local stats found", "magenta")); return 1
-    st, cr = json.loads(STATS.read_text()), creds()
+    try:
+        st = json.loads(STATS.read_text())
+    except (json.JSONDecodeError, OSError):
+        print(col("✗ Failed to read local stats", "magenta"))
+        return 1
+    cr = creds()
     da = st.get("dailyActivity", [])
     mu = st.get("modelUsage", {})
     tot_out = sum(u.get("outputTokens", 0) for u in mu.values())
