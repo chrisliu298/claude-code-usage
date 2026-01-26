@@ -1,4 +1,4 @@
-# Agent CLI Usage Statistics
+# Agent CLI Statistics
 
 CLI tools to display usage statistics for **Claude Code** and **Codex CLI**.
 

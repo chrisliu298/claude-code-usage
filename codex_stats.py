@@ -2,27 +2,14 @@
 # /// script
 # requires-python = ">=3.11"
 # ///
-"""Codex CLI usage statistics.
+"""Codex CLI usage statistics."""
 
-Reads Codex CLI session logs from:
-  $CODEX_HOME/sessions (default: ~/.codex/sessions)
-
-and prints token usage, rate limits, and basic activity summaries.
-"""
-
-from __future__ import annotations
-
-import argparse
-import json
-import os
-import re
-import shutil
-import sys
+import json, os, re, shutil, sys
 from bisect import bisect_right
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 
 ANSI = {
@@ -1060,121 +1047,40 @@ def build_records(agg: Aggregates, *, width: int, color: bool) -> list[str]:
     return lines
 
 
-def json_report(agg: Aggregates) -> dict[str, Any]:
-    costs = estimate_costs(agg.tokens_by_model)
-    return {
-        "range": {
-            "earliest": agg.earliest.isoformat() if agg.earliest else None,
-            "latest": agg.latest.isoformat() if agg.latest else None,
-        },
-        "totals": agg.totals.to_json(),
-        "cost_usd": costs.to_json(),
-        "by_day": {d.isoformat(): u.to_json() for d, u in sorted(agg.tokens_by_day.items())},
-        "by_model": {m: u.to_json() for m, u in sorted(agg.tokens_by_model.items())},
-        "tokens_by_hour": {str(h): int(agg.tokens_by_hour.get(h, 0)) for h in range(24)},
-        "messages_by_hour": {str(h): int(agg.messages_by_hour.get(h, 0)) for h in range(24)},
-        "tool_calls_by_day": {d.isoformat(): c for d, c in sorted(agg.tool_calls_by_day.items())},
-        "turns_by_day": {d.isoformat(): c for d, c in sorted(agg.turns_by_day.items())},
-        "user_messages_by_day": {d.isoformat(): c for d, c in sorted(agg.user_messages_by_day.items())},
-        "assistant_messages_by_day": {d.isoformat(): c for d, c in sorted(agg.assistant_messages_by_day.items())},
-        "sessions_by_day": {d.isoformat(): c for d, c in sorted(agg.sessions_by_day.items())},
-        "tool_calls_by_name": {k: v for k, v in sorted(agg.tool_calls_by_name.items())},
-        "latest_rate_limits_at": agg.latest_rate_limits_at.isoformat()
-        if agg.latest_rate_limits_at
-        else None,
-        "latest_rate_limits": agg.latest_rate_limits,
-        "sessions": [
-            {
-                "session_id": s.session_id,
-                "started_at": s.started_at.isoformat() if s.started_at else None,
-                "ended_at": s.ended_at.isoformat() if s.ended_at else None,
-                "cwd": s.cwd,
-                "repo_url": s.repo_url,
-                "branch": s.branch,
-                "cli_version": s.cli_version,
-                "turns": s.turns,
-                "tool_calls": s.tool_calls,
-                "user_messages": s.user_messages,
-                "assistant_messages": s.assistant_messages,
-                "tokens": s.tokens.to_json(),
-                "tokens_by_model": {m: u.to_json() for m, u in sorted(s.tokens_by_model.items())},
-            }
-            for s in agg.sessions
-        ],
-    }
+SESSIONS = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "sessions"
 
 
-def parse_args(argv: list[str]) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Codex CLI usage statistics (local logs).")
-    p.add_argument(
-        "--codex-home",
-        type=Path,
-        default=Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")),
-        help="Codex home directory (default: $CODEX_HOME or ~/.codex).",
-    )
-    p.add_argument(
-        "--sessions-dir",
-        type=Path,
-        default=None,
-        help="Override sessions directory (default: <codex-home>/sessions).",
-    )
-    p.add_argument(
-        "--days",
-        type=int,
-        default=None,
-        help="Only include the last N days of activity in totals (still shows latest rate limits).",
-    )
-    p.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
-    p.add_argument("--no-color", action="store_true", help="Disable ANSI colors.")
-    return p.parse_args(argv)
-
-
-def main(argv: list[str]) -> int:
-    args = parse_args(argv)
-    color = not args.no_color and sys.stdout.isatty()
-
-    sessions_dir = args.sessions_dir or (args.codex_home / "sessions")
-    files = iter_session_files(sessions_dir)
+def main():
+    files = iter_session_files(SESSIONS)
     if not files:
-        print(
-            col("✗ No Codex session logs found", "magenta", enabled=color)
-            + f" in {sessions_dir}"
-        )
+        print(col("✗ No Codex session logs found", "magenta") + f" in {SESSIONS}")
         return 1
-
-    since: datetime | None = None
-    if args.days is not None and args.days > 0:
-        since = datetime.now(tz=UTC) - timedelta(days=int(args.days))
 
     agg = Aggregates()
     for f in files:
-        parse_session_file(f, agg, since=since)
-
-    if args.json:
-        print(json.dumps(json_report(agg), indent=2, sort_keys=True))
-        return 0
+        parse_session_file(f, agg, since=None)
 
     width = get_width()
     wide = width >= 100
 
-    for line in build_header(agg, width=width, color=color):
+    for line in build_header(agg, width=width, color=True):
         print(line)
-    for line in build_quick_stats(agg, color=color):
+    for line in build_quick_stats(agg, color=True):
         print(line)
 
-    limits = build_usage_limits(agg, color=color)
+    limits = build_usage_limits(agg, color=True)
     if limits:
         print()
         for line in limits:
             print("  " + line)
 
-    models = build_model_breakdown(agg, width=width, color=color)
-    cost_panel = build_cost_breakdown(agg, width=width, color=color)
+    models = build_model_breakdown(agg, width=width, color=True)
+    cost_panel = build_cost_breakdown(agg, width=width, color=True)
 
     if models or cost_panel:
         print()
         if wide and models and cost_panel and can_merge_columns(models, cost_panel, width=width):
-            for line in merge_columns(models, cost_panel, color=color):
+            for line in merge_columns(models, cost_panel, color=True):
                 print("  " + line)
         else:
             if models:
@@ -1186,12 +1092,12 @@ def main(argv: list[str]) -> int:
                 for line in cost_panel:
                     print("  " + line)
 
-    last7 = build_last_days(agg, days=7, width=width, color=color)
-    daily_out = build_daily_output_tokens(agg, days=7, width=width, color=color)
+    last7 = build_last_days(agg, days=7, width=width, color=True)
+    daily_out = build_daily_output_tokens(agg, days=7, width=width, color=True)
     if last7 or daily_out:
         print()
         if wide and last7 and daily_out and can_merge_columns(last7, daily_out, width=width):
-            for line in merge_columns(last7, daily_out, color=color):
+            for line in merge_columns(last7, daily_out, color=True):
                 print("  " + line)
         else:
             if last7:
@@ -1202,12 +1108,12 @@ def main(argv: list[str]) -> int:
                 for line in daily_out:
                     print("  " + line)
 
-    peak = build_peak_hours(agg, width=width, color=color)
-    records = build_records(agg, width=width, color=color)
+    peak = build_peak_hours(agg, width=width, color=True)
+    records = build_records(agg, width=width, color=True)
     if peak or records:
         print()
         if wide and peak and records and can_merge_columns(peak, records, width=width):
-            for line in merge_columns(peak, records, color=color):
+            for line in merge_columns(peak, records, color=True):
                 print("  " + line)
         else:
             if peak:
@@ -1218,7 +1124,7 @@ def main(argv: list[str]) -> int:
                 for line in records:
                     print("  " + line)
 
-    projects = build_projects(agg, width=width, color=color)
+    projects = build_projects(agg, width=width, color=True)
     if projects:
         print()
         for line in projects:
@@ -1229,4 +1135,4 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1:]))
+    exit(main())
