@@ -5,16 +5,15 @@
 # ///
 """Claude Code usage statistics."""
 
-import json, os, re, shutil, subprocess, sys
+import json, os, subprocess, sys
 from datetime import datetime
 from pathlib import Path
 import httpx
+from stats_shared import col, get_width, shorten_plain, visible_len, tok, pad_line, merge_columns
 
 STATS = Path.home() / ".claude" / "stats-cache.json"
 PROJECTS = Path.home() / ".claude.json"
 HISTORY = Path.home() / ".claude" / "history.jsonl"
-C = {"reset": "\033[0m", "bold": "\033[1m", "dim": "\033[2m", "red": "\033[31m",
-     "green": "\033[32m", "yellow": "\033[33m", "blue": "\033[34m", "magenta": "\033[35m", "cyan": "\033[36m"}
 # Pricing per MTok: [input, output]. Cache read/write rates are derived from input price.
 # Cache write multiplier defaults to 5-minute pricing (1.25x). Set CLAUDE_CACHE_WRITE_MULTIPLIER=2.0 for 1-hour writes.
 CACHE_READ_MULTIPLIER = 0.1
@@ -25,8 +24,6 @@ PRICE = {
     "haiku-4-5": [1, 5],
 }
 
-def col(t, *s): return "".join(C.get(x, "") for x in s) + str(t) + C["reset"]
-def tok(n): return f"{n/1e6:.1f}M" if n >= 1e6 else f"{n/1e3:.0f}K" if n >= 1e3 else str(n)
 def fdate(s):
     try: return datetime.fromisoformat(s.replace("Z", "+00:00")).strftime("%b %d")
     except: return s[-5:] if len(s) >= 5 else s
@@ -50,24 +47,6 @@ def cost(u, pk):
     cw = p[0] * CACHE_WRITE_MULTIPLIER
     return (u.get("inputTokens", 0) * p[0] + u.get("outputTokens", 0) * p[1] +
             u.get("cacheReadInputTokens", 0) * cr + u.get("cacheCreationInputTokens", 0) * cw) / 1e6
-
-ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
-def get_width(): return shutil.get_terminal_size((80, 24)).columns
-def visible_len(s): return len(ANSI_RE.sub('', s))
-def pad_line(s, width): return s + " " * (width - visible_len(s))
-def shorten_plain(s, max_len):
-    if len(s) <= max_len: return s
-    if max_len <= 1: return s[:max_len]
-    return s[:max_len - 1] + "…"
-def merge_columns(left, right, gap=3, sep="│"):
-    """Merge two sections side-by-side with a separator."""
-    lw = max((visible_len(l) for l in left), default=0)
-    merged = []
-    for i in range(max(len(left), len(right))):
-        l = left[i] if i < len(left) else ""
-        r = right[i] if i < len(right) else ""
-        merged.append(pad_line(l, lw) + " " * gap + col(sep, "dim") + " " + r)
-    return merged
 
 def creds():
     if sys.platform != "darwin": return None

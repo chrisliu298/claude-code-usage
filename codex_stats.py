@@ -4,27 +4,15 @@
 # ///
 """Codex CLI usage statistics."""
 
-import json, os, re, shutil, sys
+import json, os, re, sys
 from bisect import bisect_right
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from stats_shared import col, get_width, shorten_plain, visible_len, tok, bar, merge_columns, can_merge_columns
 
 
-ANSI = {
-    "reset": "\033[0m",
-    "bold": "\033[1m",
-    "dim": "\033[2m",
-    "red": "\033[31m",
-    "green": "\033[32m",
-    "yellow": "\033[33m",
-    "blue": "\033[34m",
-    "magenta": "\033[35m",
-    "cyan": "\033[36m",
-}
-
-ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 DATE_SUFFIX_RE = re.compile(r"^(?P<base>.+)-\d{4}-\d{2}-\d{2}$")
 
 
@@ -44,40 +32,6 @@ class ModelPricing:
 MODEL_PRICING: dict[str, ModelPricing] = {
     "gpt-5.2": ModelPricing(input_usd_per_mtok=1.75, cached_input_usd_per_mtok=0.175, output_usd_per_mtok=14.0),
 }
-
-
-def col(text: object, *styles: str, enabled: bool = True) -> str:
-    if not enabled:
-        return str(text)
-    return "".join(ANSI.get(s, "") for s in styles) + str(text) + ANSI["reset"]
-
-
-def get_width() -> int:
-    return shutil.get_terminal_size((80, 24)).columns
-
-
-def visible_len(s: str) -> int:
-    return len(ANSI_RE.sub("", s))
-
-
-def shorten_plain(s: str, max_len: int) -> str:
-    if len(s) <= max_len:
-        return s
-    if max_len <= 1:
-        return s[:max_len]
-    return s[: max_len - 1] + "…"
-
-
-def tok(n: int) -> str:
-    if n >= 1_000_000_000:
-        return f"{n/1e9:.1f}B"
-    if n >= 1_000_000:
-        return f"{n/1e6:.1f}M"
-    if n >= 10_000:
-        return f"{n/1e3:.0f}K"
-    if n >= 1_000:
-        return f"{n/1e3:.1f}K"
-    return str(n)
 
 
 def parse_ts(ts: str | None) -> datetime | None:
@@ -646,12 +600,6 @@ def build_quick_stats(agg: Aggregates, *, color: bool) -> list[str]:
     ]
 
 
-def bar(pct: float, width: int = 20) -> str:
-    pct = max(0.0, min(100.0, pct))
-    filled = int(round(width * pct / 100.0))
-    return "█" * filled + "░" * (width - filled)
-
-
 def build_usage_limits(agg: Aggregates, *, color: bool) -> list[str]:
     rl = agg.latest_rate_limits or {}
     primary = rl.get("primary") or {}
@@ -959,34 +907,6 @@ def build_projects(agg: Aggregates, *, width: int, color: bool) -> list[str]:
     return lines
 
 
-def merge_columns(left: list[str], right: list[str], *, color: bool, gap: int = 3) -> list[str]:
-    lw = max((visible_len(l) for l in left), default=0)
-    merged: list[str] = []
-    sep = col("│", "dim", enabled=color)
-    for i in range(max(len(left), len(right))):
-        l = left[i] if i < len(left) else ""
-        r = right[i] if i < len(right) else ""
-        pad = " " * max(0, lw - visible_len(l))
-        merged.append(f"{l}{pad}{' ' * gap}{sep} {r}")
-    return merged
-
-
-def can_merge_columns(
-    left: list[str],
-    right: list[str],
-    *,
-    width: int,
-    gap: int = 3,
-    indent: int = 2,
-) -> bool:
-    if not left or not right:
-        return False
-    lw = max((visible_len(l) for l in left), default=0)
-    rw = max((visible_len(r) for r in right), default=0)
-    needed = indent + lw + gap + 2 + rw  # "│ " is 2 columns
-    return needed <= width
-
-
 def fmt_dur(delta: timedelta) -> str:
     secs = int(delta.total_seconds())
     mins, _ = divmod(max(secs, 0), 60)
@@ -1062,7 +982,7 @@ def main():
     if models or cost_panel:
         print()
         if wide and models and cost_panel and can_merge_columns(models, cost_panel, width=width):
-            for line in merge_columns(models, cost_panel, color=True):
+            for line in merge_columns(models, cost_panel):
                 print("  " + line)
         else:
             if models:
@@ -1079,7 +999,7 @@ def main():
     if last7 or daily_out:
         print()
         if wide and last7 and daily_out and can_merge_columns(last7, daily_out, width=width):
-            for line in merge_columns(last7, daily_out, color=True):
+            for line in merge_columns(last7, daily_out):
                 print("  " + line)
         else:
             if last7:
@@ -1095,7 +1015,7 @@ def main():
     if peak or records:
         print()
         if wide and peak and records and can_merge_columns(peak, records, width=width):
-            for line in merge_columns(peak, records, color=True):
+            for line in merge_columns(peak, records):
                 print("  " + line)
         else:
             if peak:
