@@ -43,24 +43,6 @@ class ModelPricing:
 # - GPT-5.2 model page: https://platform.openai.com/docs/models/gpt-5.2
 MODEL_PRICING: dict[str, ModelPricing] = {
     "gpt-5.2": ModelPricing(input_usd_per_mtok=1.75, cached_input_usd_per_mtok=0.175, output_usd_per_mtok=14.0),
-    "gpt-5.2-pro": ModelPricing(input_usd_per_mtok=21.0, cached_input_usd_per_mtok=None, output_usd_per_mtok=168.0),
-    "gpt-5.1": ModelPricing(input_usd_per_mtok=1.25, cached_input_usd_per_mtok=0.125, output_usd_per_mtok=10.0),
-    "gpt-5.1-mini": ModelPricing(input_usd_per_mtok=0.25, cached_input_usd_per_mtok=0.025, output_usd_per_mtok=2.0),
-    "gpt-5.1-nano": ModelPricing(input_usd_per_mtok=0.05, cached_input_usd_per_mtok=0.005, output_usd_per_mtok=0.4),
-    "gpt-5": ModelPricing(input_usd_per_mtok=1.25, cached_input_usd_per_mtok=0.125, output_usd_per_mtok=10.0),
-    "gpt-5-pro": ModelPricing(input_usd_per_mtok=15.0, cached_input_usd_per_mtok=None, output_usd_per_mtok=120.0),
-    "gpt-5-mini": ModelPricing(input_usd_per_mtok=0.25, cached_input_usd_per_mtok=0.025, output_usd_per_mtok=2.0),
-    "gpt-5-nano": ModelPricing(input_usd_per_mtok=0.05, cached_input_usd_per_mtok=0.005, output_usd_per_mtok=0.4),
-    "gpt-4.1": ModelPricing(input_usd_per_mtok=2.0, cached_input_usd_per_mtok=0.5, output_usd_per_mtok=8.0),
-    "gpt-4.1-mini": ModelPricing(input_usd_per_mtok=0.4, cached_input_usd_per_mtok=0.1, output_usd_per_mtok=1.6),
-    "gpt-4.1-nano": ModelPricing(input_usd_per_mtok=0.1, cached_input_usd_per_mtok=0.025, output_usd_per_mtok=0.4),
-    "gpt-4o": ModelPricing(input_usd_per_mtok=2.5, cached_input_usd_per_mtok=1.25, output_usd_per_mtok=10.0),
-    "gpt-4o-mini": ModelPricing(input_usd_per_mtok=0.15, cached_input_usd_per_mtok=0.075, output_usd_per_mtok=0.6),
-    "o1": ModelPricing(input_usd_per_mtok=15.0, cached_input_usd_per_mtok=7.5, output_usd_per_mtok=60.0),
-    "o1-mini": ModelPricing(input_usd_per_mtok=1.1, cached_input_usd_per_mtok=0.55, output_usd_per_mtok=4.4),
-    "o3": ModelPricing(input_usd_per_mtok=2.0, cached_input_usd_per_mtok=0.5, output_usd_per_mtok=8.0),
-    "o3-mini": ModelPricing(input_usd_per_mtok=1.1, cached_input_usd_per_mtok=0.55, output_usd_per_mtok=4.4),
-    "o3-pro": ModelPricing(input_usd_per_mtok=20.0, cached_input_usd_per_mtok=None, output_usd_per_mtok=80.0),
 }
 
 

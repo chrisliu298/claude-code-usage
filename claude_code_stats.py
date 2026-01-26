@@ -5,7 +5,7 @@
 # ///
 """Claude Code usage statistics."""
 
-import json, re, shutil, subprocess, sys
+import json, os, re, shutil, subprocess, sys
 from datetime import datetime
 from pathlib import Path
 import httpx
@@ -15,9 +15,15 @@ PROJECTS = Path.home() / ".claude.json"
 HISTORY = Path.home() / ".claude" / "history.jsonl"
 C = {"reset": "\033[0m", "bold": "\033[1m", "dim": "\033[2m", "red": "\033[31m",
      "green": "\033[32m", "yellow": "\033[33m", "blue": "\033[34m", "magenta": "\033[35m", "cyan": "\033[36m"}
-# Pricing per MTok: [input, output, cache_read, cache_write]
-PRICE = {"opus-4-5": [5, 25, 0.5, 6.25], "opus-4-1": [15, 75, 1.5, 18.75], "sonnet-4-5": [3, 15, 0.3, 3.75],
-         "sonnet-4": [3, 15, 0.3, 3.75], "haiku-4-5": [1, 5, 0.1, 1.25], "haiku-3-5": [0.8, 4, 0.08, 1.0]}
+# Pricing per MTok: [input, output]. Cache read/write rates are derived from input price.
+# Cache write multiplier defaults to 5-minute pricing (1.25x). Set CLAUDE_CACHE_WRITE_MULTIPLIER=2.0 for 1-hour writes.
+CACHE_READ_MULTIPLIER = 0.1
+CACHE_WRITE_MULTIPLIER = float(os.getenv("CLAUDE_CACHE_WRITE_MULTIPLIER", "1.25"))
+PRICE = {
+    "opus-4-5": [5, 25],
+    "sonnet-4-5": [3, 15],
+    "haiku-4-5": [1, 5],
+}
 
 def col(t, *s): return "".join(C.get(x, "") for x in s) + str(t) + C["reset"]
 def tok(n): return f"{n/1e6:.1f}M" if n >= 1e6 else f"{n/1e3:.0f}K" if n >= 1e3 else str(n)
@@ -34,14 +40,16 @@ def freset(s):
 def fdur(ms): h, m = divmod(ms // 60000, 60); return f"{h}h {m}m" if h else f"{m}m"
 def pkey(m):
     m = m.lower()
-    for k in ["opus-4-5", "opus-4-1", "sonnet-4-5", "sonnet-4", "haiku-4-5", "haiku-3-5"]:
-        if k in m or k.replace("-4-5", "-4.5").replace("-4-1", "-4.1").replace("-3-5", "-3.5") in m: return k
+    for k in ["opus-4-5", "sonnet-4-5", "haiku-4-5"]:
+        if k in m or k.replace("-4-5", "-4.5").replace("-4-1", "-4.1").replace("-3-5", "-3.5").replace("-3-7", "-3.7") in m: return k
     return None
 def cost(u, pk):
     if not pk or pk not in PRICE: return 0
     p = PRICE[pk]
+    cr = p[0] * CACHE_READ_MULTIPLIER
+    cw = p[0] * CACHE_WRITE_MULTIPLIER
     return (u.get("inputTokens", 0) * p[0] + u.get("outputTokens", 0) * p[1] +
-            u.get("cacheReadInputTokens", 0) * p[2] + u.get("cacheCreationInputTokens", 0) * p[3]) / 1e6
+            u.get("cacheReadInputTokens", 0) * cr + u.get("cacheCreationInputTokens", 0) * cw) / 1e6
 
 ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
 def get_width(): return shutil.get_terminal_size((80, 24)).columns
@@ -150,7 +158,8 @@ def build_model_breakdown(mu, tot_out):
         if pk and pk in PRICE:
             p = PRICE[pk]
             cb["in"] += u.get("inputTokens", 0) * p[0] / 1e6; cb["out"] += out * p[1] / 1e6
-            cb["cr"] += u.get("cacheReadInputTokens", 0) * p[2] / 1e6; cb["cw"] += u.get("cacheCreationInputTokens", 0) * p[3] / 1e6
+            cb["cr"] += u.get("cacheReadInputTokens", 0) * (p[0] * CACHE_READ_MULTIPLIER) / 1e6
+            cb["cw"] += u.get("cacheCreationInputTokens", 0) * (p[0] * CACHE_WRITE_MULTIPLIER) / 1e6
         f = int(20 * pct / 100)
         lines.append(f"{col(f'{nm:<10}', 'cyan')} {col('█' * f + '░' * (20 - f), 'blue')} {pct:>3.0f}%  {col(f'${c:>6.0f}', 'green')}")
     return lines, ct, cb
