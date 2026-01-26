@@ -12,6 +12,7 @@ import httpx
 
 STATS = Path.home() / ".claude" / "stats-cache.json"
 PROJECTS = Path.home() / ".claude.json"
+HISTORY = Path.home() / ".claude" / "history.jsonl"
 C = {"reset": "\033[0m", "bold": "\033[1m", "dim": "\033[2m", "red": "\033[31m",
      "green": "\033[32m", "yellow": "\033[33m", "blue": "\033[34m", "magenta": "\033[35m", "cyan": "\033[36m"}
 # Pricing per MTok: [input, output, cache_read, cache_write]
@@ -46,6 +47,10 @@ ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
 def get_width(): return shutil.get_terminal_size((80, 24)).columns
 def visible_len(s): return len(ANSI_RE.sub('', s))
 def pad_line(s, width): return s + " " * (width - visible_len(s))
+def shorten_plain(s, max_len):
+    if len(s) <= max_len: return s
+    if max_len <= 1: return s[:max_len]
+    return s[:max_len - 1] + "…"
 def merge_columns(left, right, gap=3, sep="│"):
     """Merge two sections side-by-side with a separator."""
     lw = max((visible_len(l) for l in left), default=0)
@@ -73,8 +78,32 @@ def build_header(st, cr, width):
     if cr:
         t = str(cr.get("rateLimitTier", "") or "")
         tier = "Max 5x" if "max_5x" in t else "Max 20x" if "max_20x" in t else "Pro" if "pro" in t.lower() else ""
-    sub = " • ".join(filter(None, [tier, f"Since {fdate(st.get('firstSessionDate', ''))}" if st.get("firstSessionDate") else ""]))
     inner = width - 4  # Account for borders and padding
+
+    parts = [tier, f"Since {fdate(st.get('firstSessionDate', ''))}" if st.get("firstSessionDate") else ""]
+
+    mu = st.get("modelUsage", {}) or {}
+    ti = sum(u.get("inputTokens", 0) for u in mu.values())
+    to = sum(u.get("outputTokens", 0) for u in mu.values())
+    tcr = sum(u.get("cacheReadInputTokens", 0) for u in mu.values())
+    tcw = sum(u.get("cacheCreationInputTokens", 0) for u in mu.values())
+    tt = ti + to + tcr + tcw
+    if tt:
+        bits = [f"{tok(ti)} in", f"{tok(to)} out"]
+        if tcr: bits.append(f"{tok(tcr)} cache read")
+        if tcw: bits.append(f"{tok(tcw)} cache write")
+        parts.append(f"{tok(tt)} tokens ({', '.join(bits)})")
+
+    turns = None
+    if HISTORY.exists():
+        try:
+            with HISTORY.open("r", encoding="utf-8") as f:
+                turns = sum(1 for _ in f)
+        except: turns = None
+    if turns is not None:
+        parts.append(f"{turns:,} turns")
+
+    sub = shorten_plain(" • ".join(filter(None, parts)), inner)
     lines = [col('╭' + '─' * (width - 2) + '╮', 'dim')]
     title = col('CLAUDE CODE USAGE', 'bold', 'cyan')
     title_len = 17  # "CLAUDE CODE USAGE"
