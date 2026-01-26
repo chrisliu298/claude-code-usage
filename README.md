@@ -45,6 +45,7 @@ alias xstats="/path/to/codex_stats.py"
 
 - macOS (uses Keychain for OAuth in Claude Code stats)
 - Python 3.11+
+- httpx (`pip install httpx`)
 
 ## License
 

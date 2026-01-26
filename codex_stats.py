@@ -1,7 +1,4 @@
-#!/usr/bin/env -S uv run
-# /// script
-# requires-python = ">=3.11"
-# ///
+#!/usr/bin/env python3
 """Codex CLI usage statistics."""
 
 import json, os, re, sys

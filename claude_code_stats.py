@@ -1,8 +1,4 @@
-#!/usr/bin/env -S uv run
-# /// script
-# requires-python = ">=3.11"
-# dependencies = ["httpx"]
-# ///
+#!/usr/bin/env python3
 """Claude Code usage statistics."""
 
 import json, os, subprocess, sys

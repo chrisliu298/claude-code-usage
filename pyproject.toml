@@ -1,9 +1,9 @@
 [project]
 name = "agent-cli-stats"
 version = "0.1.0"
-description = "Add your description here"
-requires-python = ">=3.12"
-dependencies = []
+description = "CLI tools to display usage statistics for Claude Code and Codex CLI"
+requires-python = ">=3.11"
+dependencies = ["httpx"]
 
 [dependency-groups]
 dev = [
