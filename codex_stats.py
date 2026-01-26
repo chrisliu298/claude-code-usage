@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
-from stats_shared import col, get_width, shorten_plain, visible_len, tok, bar, merge_columns, can_merge_columns
+from utils import col, get_width, shorten_plain, visible_len, tok, bar, merge_columns, can_merge_columns
 
 
 DATE_SUFFIX_RE = re.compile(r"^(?P<base>.+)-\d{4}-\d{2}-\d{2}$")

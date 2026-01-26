@@ -9,7 +9,7 @@ import json, os, subprocess, sys
 from datetime import datetime
 from pathlib import Path
 import httpx
-from stats_shared import col, get_width, shorten_plain, visible_len, tok, pad_line, merge_columns
+from utils import col, get_width, shorten_plain, visible_len, tok, pad_line, merge_columns
 
 STATS = Path.home() / ".claude" / "stats-cache.json"
 PROJECTS = Path.home() / ".claude.json"
