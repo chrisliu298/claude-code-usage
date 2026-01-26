@@ -10,8 +10,6 @@ CLI tools to display usage statistics for **Claude Code** and **Codex CLI**.
 ## Claude Code Stats
 
 ```bash
-uv run claude_code_stats.py
-# or
 ./claude_code_stats.py
 ```
 
@@ -30,8 +28,6 @@ alias cstats="/path/to/claude_code_stats.py"
 ## Codex Stats
 
 ```bash
-uv run codex_stats.py
-# or
 ./codex_stats.py
 ```
 
@@ -49,7 +45,6 @@ alias xstats="/path/to/codex_stats.py"
 
 - macOS (uses Keychain for OAuth in Claude Code stats)
 - Python 3.11+
-- [uv](https://github.com/astral-sh/uv)
 
 ## License
 
