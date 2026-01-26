@@ -3,8 +3,8 @@
 CLI tools to display usage statistics for **Claude Code** and **Codex CLI**.
 
 <p align="center">
-  <img src="claude_code.png" alt="Claude Code Usage Statistics" width="49%">
-  <img src="codex.png" alt="Codex Usage Statistics" width="49%">
+  <img src="claude_code.png" alt="Claude Code Usage Statistics" width="49%" valign="top">
+  <img src="codex.png" alt="Codex Usage Statistics" width="49%" valign="top">
 </p>
 
 ## Claude Code Stats
