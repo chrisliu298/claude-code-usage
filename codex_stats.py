@@ -10,7 +10,16 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
-from utils import col, get_width, shorten_plain, visible_len, tok, bar, merge_columns, can_merge_columns
+from utils import (
+    col,
+    get_width,
+    shorten_plain,
+    visible_len,
+    tok,
+    bar,
+    merge_columns,
+    can_merge_columns,
+)
 
 
 DATE_SUFFIX_RE = re.compile(r"^(?P<base>.+)-\d{4}-\d{2}-\d{2}$")
@@ -30,7 +39,11 @@ class ModelPricing:
 # - OpenAI API Pricing: https://openai.com/api/pricing
 # - GPT-5.2 model page: https://platform.openai.com/docs/models/gpt-5.2
 MODEL_PRICING: dict[str, ModelPricing] = {
-    "gpt-5.2": ModelPricing(input_usd_per_mtok=1.75, cached_input_usd_per_mtok=0.175, output_usd_per_mtok=14.0),
+    "gpt-5.2": ModelPricing(
+        input_usd_per_mtok=1.75,
+        cached_input_usd_per_mtok=0.175,
+        output_usd_per_mtok=14.0,
+    ),
 }
 
 
@@ -150,7 +163,9 @@ class CostSummary:
                 "cached_input_tokens": self.cached_input_tokens,
                 "output_tokens": self.output_tokens,
             },
-            "cost_by_model_usd": {m: float(c) for m, c in sorted(self.cost_by_model.items())},
+            "cost_by_model_usd": {
+                m: float(c) for m, c in sorted(self.cost_by_model.items())
+            },
             "unpriced_models": sorted(self.unpriced_models),
             "unpriced_tokens": int(self.unpriced_tokens),
         }
@@ -318,7 +333,9 @@ def iter_session_files(sessions_dir: Path) -> list[Path]:
     return files
 
 
-def session_project_key(meta: dict[str, Any]) -> tuple[str | None, str | None, str | None]:
+def session_project_key(
+    meta: dict[str, Any],
+) -> tuple[str | None, str | None, str | None]:
     cwd = meta.get("cwd")
     git = meta.get("git") or {}
     repo_url = git.get("repository_url")
@@ -391,7 +408,8 @@ def parse_session_file(path: Path, agg: Aggregates, *, since: datetime | None) -
                 if typ == "event_msg" and payload.get("type") == "token_count":
                     rl = payload.get("rate_limits")
                     if rl and (
-                        agg.latest_rate_limits_at is None or dt > agg.latest_rate_limits_at
+                        agg.latest_rate_limits_at is None
+                        or dt > agg.latest_rate_limits_at
                     ):
                         agg.latest_rate_limits_at = dt
                         agg.latest_rate_limits = rl
@@ -415,10 +433,14 @@ def parse_session_file(path: Path, agg: Aggregates, *, since: datetime | None) -
                             tool_calls += 1
                             d = local_day(dt)
                             active_days.add(d)
-                            agg.tool_calls_by_day[d] = agg.tool_calls_by_day.get(d, 0) + 1
+                            agg.tool_calls_by_day[d] = (
+                                agg.tool_calls_by_day.get(d, 0) + 1
+                            )
                             name = payload.get("name")
                             if isinstance(name, str) and name:
-                                agg.tool_calls_by_name[name] = agg.tool_calls_by_name.get(name, 0) + 1
+                                agg.tool_calls_by_name[name] = (
+                                    agg.tool_calls_by_name.get(name, 0) + 1
+                                )
                         continue
                     if item_type == "message":
                         if in_range:
@@ -427,11 +449,15 @@ def parse_session_file(path: Path, agg: Aggregates, *, since: datetime | None) -
                             active_days.add(d)
                             if role == "user":
                                 user_messages += 1
-                                agg.user_messages_by_day[d] = agg.user_messages_by_day.get(d, 0) + 1
+                                agg.user_messages_by_day[d] = (
+                                    agg.user_messages_by_day.get(d, 0) + 1
+                                )
                                 agg.messages_by_hour[to_local(dt).hour] += 1
                             elif role == "assistant":
                                 assistant_messages += 1
-                                agg.assistant_messages_by_day[d] = agg.assistant_messages_by_day.get(d, 0) + 1
+                                agg.assistant_messages_by_day[d] = (
+                                    agg.assistant_messages_by_day.get(d, 0) + 1
+                                )
                                 agg.messages_by_hour[to_local(dt).hour] += 1
                         continue
     except OSError:
@@ -486,9 +512,13 @@ def parse_session_file(path: Path, agg: Aggregates, *, since: datetime | None) -
     for dt, totals in token_snapshots:
         delta = TokenUsage(
             input_tokens=max(0, totals.input_tokens - prev.input_tokens),
-            cached_input_tokens=max(0, totals.cached_input_tokens - prev.cached_input_tokens),
+            cached_input_tokens=max(
+                0, totals.cached_input_tokens - prev.cached_input_tokens
+            ),
             output_tokens=max(0, totals.output_tokens - prev.output_tokens),
-            reasoning_output_tokens=max(0, totals.reasoning_output_tokens - prev.reasoning_output_tokens),
+            reasoning_output_tokens=max(
+                0, totals.reasoning_output_tokens - prev.reasoning_output_tokens
+            ),
             total_tokens=max(0, totals.total_tokens - prev.total_tokens),
         )
 
@@ -646,10 +676,15 @@ def build_model_breakdown(agg: Aggregates, *, width: int, color: bool) -> list[s
         return []
     costs = estimate_costs(agg.tokens_by_model)
     panel_width = min(45, max(24, width - 4))
-    lines = [col("Model Breakdown", "bold", enabled=color), col("─" * panel_width, "dim", enabled=color)]
+    lines = [
+        col("Model Breakdown", "bold", enabled=color),
+        col("─" * panel_width, "dim", enabled=color),
+    ]
     tot_out = sum(u.output_tokens for _, u in items)
     denom = tot_out or (agg.totals.total_tokens or 1)
-    key_fn = (lambda kv: kv[1].output_tokens) if tot_out else (lambda kv: kv[1].total_tokens)
+    key_fn = (
+        (lambda kv: kv[1].output_tokens) if tot_out else (lambda kv: kv[1].total_tokens)
+    )
     items.sort(key=key_fn, reverse=True)
 
     for model, usage in items[:12]:
@@ -750,7 +785,9 @@ def build_cost_breakdown(agg: Aggregates, *, width: int, color: bool) -> list[st
     return lines
 
 
-def build_last_days(agg: Aggregates, *, days: int, width: int, color: bool) -> list[str]:
+def build_last_days(
+    agg: Aggregates, *, days: int, width: int, color: bool
+) -> list[str]:
     panel_width = min(45, max(24, width - 4))
     active = sorted(
         set(agg.user_messages_by_day)
@@ -764,7 +801,9 @@ def build_last_days(agg: Aggregates, *, days: int, width: int, color: bool) -> l
 
     points: list[tuple[date, int, int, int]] = []
     for d in series:
-        msgs = agg.user_messages_by_day.get(d, 0) + agg.assistant_messages_by_day.get(d, 0)
+        msgs = agg.user_messages_by_day.get(d, 0) + agg.assistant_messages_by_day.get(
+            d, 0
+        )
         tools = agg.tool_calls_by_day.get(d, 0)
         sess = agg.sessions_by_day.get(d, 0)
         points.append((d, msgs, tools, sess))
@@ -794,7 +833,9 @@ def build_last_days(agg: Aggregates, *, days: int, width: int, color: bool) -> l
     return lines
 
 
-def build_daily_output_tokens(agg: Aggregates, *, days: int, width: int, color: bool) -> list[str]:
+def build_daily_output_tokens(
+    agg: Aggregates, *, days: int, width: int, color: bool
+) -> list[str]:
     panel_width = min(36, max(24, width - 4))
     active = sorted(d for d, u in agg.tokens_by_day.items() if u.output_tokens)
     if not active:
@@ -830,11 +871,20 @@ def build_peak_hours(agg: Aggregates, *, width: int, color: bool) -> list[str]:
         return chars[idx]
 
     panel_width = min(45, max(24, width - 4))
-    lines = [col("Peak Hours", "bold", enabled=color), col("─" * panel_width, "dim", enabled=color)]
+    lines = [
+        col("Peak Hours", "bold", enabled=color),
+        col("─" * panel_width, "dim", enabled=color),
+    ]
     lines.append(col("".join(f"{h:>3}" for h in range(12)), "dim", enabled=color))
-    lines.append("".join(col(f"{cell(counts[h]):>3}", "blue", enabled=color) for h in range(12)))
+    lines.append(
+        "".join(col(f"{cell(counts[h]):>3}", "blue", enabled=color) for h in range(12))
+    )
     lines.append(col("".join(f"{h:>3}" for h in range(12, 24)), "dim", enabled=color))
-    lines.append("".join(col(f"{cell(counts[h]):>3}", "blue", enabled=color) for h in range(12, 24)))
+    lines.append(
+        "".join(
+            col(f"{cell(counts[h]):>3}", "blue", enabled=color) for h in range(12, 24)
+        )
+    )
     return lines
 
 
@@ -921,7 +971,10 @@ def fmt_dur(delta: timedelta) -> str:
 
 def build_records(agg: Aggregates, *, width: int, color: bool) -> list[str]:
     panel_width = min(42, max(24, width - 4))
-    lines = [col("Records", "bold", enabled=color), col("─" * panel_width, "dim", enabled=color)]
+    lines = [
+        col("Records", "bold", enabled=color),
+        col("─" * panel_width, "dim", enabled=color),
+    ]
 
     sessions = len(agg.sessions) or 1
     total_msgs = sum(s.user_messages + s.assistant_messages for s in agg.sessions)
@@ -944,8 +997,12 @@ def build_records(agg: Aggregates, *, width: int, color: bool) -> list[str]:
         )
 
     avg_msgs = total_msgs // sessions
-    lines.append(f"{'Avg Msgs/Sess':<18}{col(str(avg_msgs), 'bold', 'green', enabled=color)}")
-    lines.append(f"{'Total Tool Calls':<18}{col(f'{total_tools:,}', 'bold', 'green', enabled=color)}")
+    lines.append(
+        f"{'Avg Msgs/Sess':<18}{col(str(avg_msgs), 'bold', 'green', enabled=color)}"
+    )
+    lines.append(
+        f"{'Total Tool Calls':<18}{col(f'{total_tools:,}', 'bold', 'green', enabled=color)}"
+    )
     return lines
 
 
@@ -981,7 +1038,12 @@ def main():
 
     if models or cost_panel:
         print()
-        if wide and models and cost_panel and can_merge_columns(models, cost_panel, width=width):
+        if (
+            wide
+            and models
+            and cost_panel
+            and can_merge_columns(models, cost_panel, width=width)
+        ):
             for line in merge_columns(models, cost_panel):
                 print("  " + line)
         else:
@@ -998,7 +1060,12 @@ def main():
     daily_out = build_daily_output_tokens(agg, days=7, width=width, color=True)
     if last7 or daily_out:
         print()
-        if wide and last7 and daily_out and can_merge_columns(last7, daily_out, width=width):
+        if (
+            wide
+            and last7
+            and daily_out
+            and can_merge_columns(last7, daily_out, width=width)
+        ):
             for line in merge_columns(last7, daily_out):
                 print("  " + line)
         else:

@@ -47,13 +47,13 @@ def shorten_plain(s: str, max_len: int) -> str:
 def tok(n: int) -> str:
     """Format token count with K/M/B suffix."""
     if n >= 1_000_000_000:
-        return f"{n/1e9:.1f}B"
+        return f"{n / 1e9:.1f}B"
     if n >= 1_000_000:
-        return f"{n/1e6:.1f}M"
+        return f"{n / 1e6:.1f}M"
     if n >= 10_000:
-        return f"{n/1e3:.0f}K"
+        return f"{n / 1e3:.0f}K"
     if n >= 1_000:
-        return f"{n/1e3:.1f}K"
+        return f"{n / 1e3:.1f}K"
     return str(n)
 
 
@@ -69,7 +69,9 @@ def pad_line(s: str, width: int) -> str:
     return s + " " * (width - visible_len(s))
 
 
-def merge_columns(left: list[str], right: list[str], gap: int = 3, sep: str = "│") -> list[str]:
+def merge_columns(
+    left: list[str], right: list[str], gap: int = 3, sep: str = "│"
+) -> list[str]:
     """Merge two sections side-by-side with a separator."""
     lw = max((visible_len(l) for l in left), default=0)
     merged = []
@@ -80,7 +82,9 @@ def merge_columns(left: list[str], right: list[str], gap: int = 3, sep: str = "�
     return merged
 
 
-def can_merge_columns(left: list[str], right: list[str], width: int, gap: int = 3, indent: int = 2) -> bool:
+def can_merge_columns(
+    left: list[str], right: list[str], width: int, gap: int = 3, indent: int = 2
+) -> bool:
     """Check if two columns can fit side-by-side."""
     if not left or not right:
         return False
